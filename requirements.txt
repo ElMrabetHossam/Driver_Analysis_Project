@@ -1,0 +1,16 @@
+# Core AI & Processing
+torch
+torchvision
+ultralytics
+opencv-python
+scikit-learn
+
+# Data Manipulation
+numpy
+pandas
+matplotlib
+seaborn
+
+# Dashboard & Utilities
+tqdm
+notebook

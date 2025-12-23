@@ -1,0 +1,10 @@
+#### Création de l'environnement virtuel (no need truniwha)
+python -m venv venv
+
+
+#### hadi la ligne d'activation a executer kbal matabghiw tkhadmou
+.\venv\Scripts\activate
+
+
+#### Installation dyal les dependences
+pip install -r requirements.txt
