@@ -14,3 +14,8 @@ seaborn
 # Dashboard & Utilities
 tqdm
 notebook
+requests
+streamlit
+
+# Deep Learning (for LSTM/Transformer)
+# Already included in torch

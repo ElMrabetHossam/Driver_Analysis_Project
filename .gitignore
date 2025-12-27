@@ -1,0 +1,15 @@
+# Raw dataset (too large for GitHub - ~8GB)
+# Download from: https://github.com/commaai/comma2k19
+data/raw/comma2k19/Chunk_1/
+!data/raw/comma2k19/.gitkeep
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
