@@ -1,0 +1,141 @@
+/* Professional Adaptive Mission Control Dashboard */
+:root {
+    --bg-color: #050507;
+    --card-bg: rgba(20, 20, 25, 0.8);
+    --card-border: #22222a;
+    --accent-blue: #00d2ff;
+    --accent-green: #00ff99;
+    --accent-red: #ff3366;
+    --text-main: #ffffff;
+    --text-dim: #777;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    background-color: var(--bg-color);
+    color: var(--text-main);
+    font-family: 'Inter', -apple-system, sans-serif;
+    overflow: hidden;
+    height: 100vh;
+    width: 100vw;
+}
+
+#main-container {
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+/* Header */
+.top-header {
+    height: 6vh;
+    background: #000;
+    border-bottom: 1px solid #333;
+    display: flex;
+    align-items: center;
+    padding: 0 1.5rem;
+    justify-content: space-between;
+}
+
+/* 2 Columns x 3 Rows Grid */
+.dashboard-grid {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 50% 50%;
+    /* Identical columns */
+    grid-template-rows: repeat(3, 31vh);
+    /* Identical rows fit in ~93vh */
+    gap: 0.5vh;
+    padding: 0.5vh;
+    background: #0a0a0a;
+}
+
+.grid-item {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 4px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding: 5px;
+}
+
+.section-label {
+    height: 18px;
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--text-dim);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    border-left: 3px solid var(--accent-blue);
+    padding-left: 8px;
+    margin-bottom: 5px;
+    display: flex;
+    align-items: center;
+}
+
+/* Components */
+.graph-container {
+    flex: 1;
+    width: 100%;
+    height: 100%;
+}
+
+.video-container {
+    flex: 1;
+    background: #000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+}
+
+.video-frame {
+    width: 100%;
+    height: 100%;
+    object-fit: cover !important;
+}
+
+/* Footer */
+.bottom-controls {
+    height: 7vh;
+    background: #111;
+    border-top: 2px solid #222;
+    display: flex;
+    align-items: center;
+    padding: 0 20px;
+    gap: 15px;
+}
+
+.ctrl-btn {
+    background: #222;
+    color: white;
+    border: 1px solid #444;
+    padding: 6px 18px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    transition: all 0.2s;
+}
+
+.ctrl-btn:hover {
+    border-color: var(--accent-blue);
+    background: #2a2a2a;
+}
+
+.slider-container {
+    flex: 1;
+    padding: 0 15px;
+}
+
+/* Plotly overrides to ensure no overflow */
+.js-plotly-plot,
+.plotly {
+    width: 100% !important;
+    height: 100% !important;
+}

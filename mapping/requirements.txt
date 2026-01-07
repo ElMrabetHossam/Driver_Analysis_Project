@@ -1,0 +1,10 @@
+dash
+plotly
+folium
+numpy
+pyproj
+pandas
+dash-bootstrap-components
+opencv-python-headless
+requests
+flask
