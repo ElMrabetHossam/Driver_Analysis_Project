@@ -356,22 +356,31 @@ def train_all_models(data_path: str, output_dir: str = 'models/') -> Dict:
         output_dir: Directory to save models
         
     Returns:
-        Dict with all model results
+        Dict with all model results including timing
     """
+    import time
+    
     print("\n" + "="*60)
     print("TRAINING ALL MODELS")
     print("="*60)
     
+    timing = {}
+    total_start = time.time()
+    
     # Load data
     print(f"\nLoading data from {data_path}...")
+    load_start = time.time()
     df = pd.read_csv(data_path)
-    print(f"Loaded {len(df)} samples")
+    timing['data_loading'] = time.time() - load_start
+    print(f"Loaded {len(df)} samples in {timing['data_loading']:.2f}s")
     
     # Prepare features
+    prep_start = time.time()
     available_features = [c for c in FEATURE_COLUMNS if c in df.columns]
     X = df[available_features].fillna(df[available_features].median())
     X = X.replace([np.inf, -np.inf], np.nan).fillna(X.median())
     y = df['label'].values
+    timing['data_preparation'] = time.time() - prep_start
     
     print(f"Features: {available_features}")
     print(f"Label distribution: {pd.Series(y).value_counts().to_dict()}")
@@ -389,24 +398,30 @@ def train_all_models(data_path: str, output_dir: str = 'models/') -> Dict:
     # 1. SVM
     print("\n" + "-"*40)
     print("Training SVM...")
+    svm_start = time.time()
     svm = DriverBehaviorClassifier(model_type='svm')
     svm.fit(X_train, y_train)
     svm_results = svm.evaluate(X_test, y_test)
+    timing['svm_training'] = time.time() - svm_start
     results['svm'] = svm_results
     svm.save(str(output_path / 'svm_model.pkl'))
     print(f"SVM Accuracy: {svm_results.accuracy:.3f}")
     print(f"SVM F1 Score: {svm_results.f1:.3f}")
+    print(f"SVM Training Time: {timing['svm_training']:.2f} seconds")
     
     # 2. Random Forest
     print("\n" + "-"*40)
     print("Training Random Forest...")
+    rf_start = time.time()
     rf = DriverBehaviorClassifier(model_type='random_forest')
     rf.fit(X_train, y_train)
     rf_results = rf.evaluate(X_test, y_test)
+    timing['random_forest_training'] = time.time() - rf_start
     results['random_forest'] = rf_results
     rf.save(str(output_path / 'random_forest_model.pkl'))
     print(f"Random Forest Accuracy: {rf_results.accuracy:.3f}")
     print(f"Random Forest F1 Score: {rf_results.f1:.3f}")
+    print(f"Random Forest Training Time: {timing['random_forest_training']:.2f} seconds")
     
     # Feature importance
     importance = rf.feature_importance()
@@ -418,23 +433,31 @@ def train_all_models(data_path: str, output_dir: str = 'models/') -> Dict:
     # 3. K-Means Clustering
     print("\n" + "-"*40)
     print("Training K-Means Clustering...")
+    kmeans_start = time.time()
     kmeans = DrivingStyleClusterer(n_clusters=3)
     kmeans.fit(X_train)
     kmeans_eval = kmeans.evaluate(X_train)
+    timing['kmeans_training'] = time.time() - kmeans_start
     results['kmeans'] = kmeans_eval
     print(f"Silhouette Score: {kmeans_eval['silhouette_score']:.3f}")
     print(f"Cluster sizes: {kmeans_eval['cluster_sizes']}")
+    print(f"K-Means Training Time: {timing['kmeans_training']:.2f} seconds")
     
     # 4. Isolation Forest
     print("\n" + "-"*40)
     print("Training Isolation Forest...")
+    iso_start = time.time()
     iso = AnomalyDetector(contamination=0.1)
     iso.fit(X_train)
     iso_eval = iso.evaluate(X_test, y_test)
+    timing['isolation_forest_training'] = time.time() - iso_start
     results['isolation_forest'] = iso_eval
     print(f"Anomalies detected: {iso_eval['anomalies_detected']}/{iso_eval['total_samples']}")
     if 'precision' in iso_eval:
         print(f"Precision (anomaly=aggressive): {iso_eval.get('precision', 0):.3f}")
+    print(f"Isolation Forest Training Time: {timing['isolation_forest_training']:.2f} seconds")
+    
+    timing['total'] = time.time() - total_start
     
     # Summary
     print("\n" + "="*60)
@@ -445,11 +468,22 @@ def train_all_models(data_path: str, output_dir: str = 'models/') -> Dict:
     print(f"  - random_forest_model.pkl")
     
     print("\n--- Classification Results ---")
-    print(f"{'Model':<15} {'Accuracy':<10} {'F1 Score':<10}")
-    print("-"*35)
-    print(f"{'SVM':<15} {results['svm'].accuracy:<10.3f} {results['svm'].f1:<10.3f}")
-    print(f"{'Random Forest':<15} {results['random_forest'].accuracy:<10.3f} {results['random_forest'].f1:<10.3f}")
+    print(f"{'Model':<15} {'Accuracy':<10} {'F1 Score':<10} {'Time (s)':<10}")
+    print("-"*50)
+    print(f"{'SVM':<15} {results['svm'].accuracy:<10.3f} {results['svm'].f1:<10.3f} {timing['svm_training']:<10.2f}")
+    print(f"{'Random Forest':<15} {results['random_forest'].accuracy:<10.3f} {results['random_forest'].f1:<10.3f} {timing['random_forest_training']:<10.2f}")
     
+    print("\n--- Timing Summary ---")
+    print(f"  Data Loading:          {timing['data_loading']:.2f}s")
+    print(f"  Data Preparation:      {timing['data_preparation']:.2f}s")
+    print(f"  SVM Training:          {timing['svm_training']:.2f}s")
+    print(f"  Random Forest:         {timing['random_forest_training']:.2f}s")
+    print(f"  K-Means:               {timing['kmeans_training']:.2f}s")
+    print(f"  Isolation Forest:      {timing['isolation_forest_training']:.2f}s")
+    print(f"  ─────────────────────────────")
+    print(f"  TOTAL:                 {timing['total']:.2f}s")
+    
+    results['timing'] = timing
     return results
 
 

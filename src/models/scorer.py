@@ -333,7 +333,7 @@ if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description="Score driver safety")
     parser.add_argument("--input", "-i", type=str, 
-                       default="data/processed/training_data_150.csv",
+                       default="data/processed/training_data.csv",
                        help="Input CSV with driving features")
     
     args = parser.parse_args()

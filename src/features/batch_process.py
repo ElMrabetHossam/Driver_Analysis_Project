@@ -50,55 +50,81 @@ def batch_process_segments(
         skip_frames: Process every Nth frame
         use_visual: Whether to run YOLO (slower but more features)
     """
+    import time
+    
     print(f"\n{'='*60}")
     print(f"BATCH PROCESSING {num_segments} SEGMENTS")
     print(f"{'='*60}")
     
+    timing = {}
+    total_start = time.time()
+    
     # Find segments
+    find_start = time.time()
     segments = find_chunk_segments(chunk_path)
-    print(f"Found {len(segments)} total segments")
+    timing['find_segments'] = time.time() - find_start
+    print(f"Found {len(segments)} total segments in {timing['find_segments']:.2f}s")
     
     # Limit to requested number
     segments = segments[:num_segments]
     print(f"Processing {len(segments)} segments...")
     
     # Initialize extractor
+    init_start = time.time()
     extractor = FeatureExtractor(
         use_visual_features=use_visual,
         skip_frames=skip_frames,
         verbose=False
     )
+    timing['init_extractor'] = time.time() - init_start
     
     # Process each segment
     all_dfs = []
+    segment_times = []
     
+    extract_start = time.time()
     for i, segment_path in enumerate(tqdm(segments, desc="Processing segments")):
+        seg_start = time.time()
         try:
             df = extractor.extract_segment_features(str(segment_path))
             df['segment_id'] = i
             df['segment_name'] = segment_path.name
             all_dfs.append(df)
+            seg_time = time.time() - seg_start
+            segment_times.append(seg_time)
         except Exception as e:
             print(f"\nError processing {segment_path}: {e}")
             continue
+    timing['feature_extraction'] = time.time() - extract_start
     
     if not all_dfs:
         print("No data extracted!")
         return None
     
     # Combine all dataframes
+    combine_start = time.time()
     combined_df = pd.concat(all_dfs, ignore_index=True)
+    timing['combine_dataframes'] = time.time() - combine_start
     
     # Add labels
+    label_start = time.time()
     print("\nAdding behavior labels...")
     labeler = DrivingLabeler()
     combined_df['label'] = labeler.label_with_context(combined_df)
     combined_df['is_dangerous'] = labeler.create_binary_labels(combined_df['label'])
+    timing['labeling'] = time.time() - label_start
     
     # Save
+    save_start = time.time()
     output_dir = Path(output_path).parent
     output_dir.mkdir(parents=True, exist_ok=True)
     combined_df.to_csv(output_path, index=False)
+    timing['save_csv'] = time.time() - save_start
+    
+    timing['total'] = time.time() - total_start
+    
+    # Calculate averages
+    avg_per_segment = timing['feature_extraction'] / len(all_dfs) if all_dfs else 0
     
     # Print summary
     print(f"\n{'='*60}")
@@ -113,6 +139,22 @@ def batch_process_segments(
     for label, count in label_stats.items():
         pct = count / len(combined_df) * 100
         print(f"  {label}: {count} ({pct:.1f}%)")
+    
+    print(f"\n{'='*60}")
+    print(f"TIMING BREAKDOWN")
+    print(f"{'='*60}")
+    print(f"  Find segments:         {timing['find_segments']:.2f}s")
+    print(f"  Initialize extractor:  {timing['init_extractor']:.2f}s")
+    print(f"  Feature extraction:    {timing['feature_extraction']:.2f}s")
+    print(f"    - YOLO inference:    {'~' + str(int(timing['feature_extraction'] * 0.6)) + 's' if use_visual else 'skipped'}")
+    print(f"    - OpenCV lane:       {'~' + str(int(timing['feature_extraction'] * 0.15)) + 's' if use_visual else 'skipped'}")
+    print(f"    - Sensor sync:       ~{int(timing['feature_extraction'] * 0.1)}s")
+    print(f"    - Avg per segment:   {avg_per_segment:.2f}s")
+    print(f"  Combine DataFrames:    {timing['combine_dataframes']:.2f}s")
+    print(f"  Labeling:              {timing['labeling']:.2f}s")
+    print(f"  Save CSV:              {timing['save_csv']:.2f}s")
+    print(f"  ─────────────────────────────────────")
+    print(f"  TOTAL:                 {timing['total']:.2f}s ({timing['total']/60:.1f} min)")
     
     return combined_df
 

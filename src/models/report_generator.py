@@ -8,7 +8,7 @@ Generates PDF reports with:
 - Trip statistics and visualizations
 
 Usage:
-    python -m src.models.report_generator --input data/processed/training_data_150.csv --output reports/
+    python -m src.models.report_generator --input data/processed/training_data.csv --output reports/
 """
 
 import os
@@ -462,7 +462,7 @@ if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description="Generate driver safety report")
     parser.add_argument("--input", "-i", type=str, 
-                       default="data/processed/training_data_150.csv",
+                       default="data/processed/training_data.csv",
                        help="Input CSV with driving data")
     parser.add_argument("--output", "-o", type=str, default="reports/",
                        help="Output directory for PDF reports")

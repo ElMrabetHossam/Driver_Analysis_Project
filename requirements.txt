@@ -1,21 +1,21 @@
-# Core AI & Processing
+# IA & Traitement Core
 torch
 torchvision
-ultralytics
-opencv-python
-scikit-learn
+ultralytics          # YOLOv8
+opencv-python        # Traitement vidéo/image
+scikit-learn         # ML traditionnel
 
-# Data Manipulation
+# Manipulation de données
 numpy
 pandas
 matplotlib
 seaborn
 
-# Dashboard & Utilities
-tqdm
-notebook
-requests
+# Dashboard & Visualisation
 streamlit
+plotly               # Graphiques interactifs
 
-# Deep Learning (for LSTM/Transformer)
-# Already included in torch
+# Utilitaires
+tqdm                 # Barres de progression
+requests             # Téléchargement dataset
+fpdf2                # Génération de rapports PDF

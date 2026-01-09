@@ -1,7 +1,14 @@
 # Raw dataset (too large for GitHub - ~8GB)
-# Download from: https://github.com/commaai/comma2k19
-data/raw/comma2k19/Chunk_1/
-!data/raw/comma2k19/.gitkeep
+# Download full dataset: https://github.com/commaai/comma2k19
+# NOTE: One sample segment IS included for demo purposes (50MB)
+
+# Exclude entire Chunk_1 folder
+data/raw/comma2k19/Chunk_1/*
+
+# EXCEPT: Keep sample segment 10 (included for professor testing - 50MB)
+!data/raw/comma2k19/Chunk_1/b0c9d2329ad1606b|2018-07-27--06-03-57/
+data/raw/comma2k19/Chunk_1/b0c9d2329ad1606b|2018-07-27--06-03-57/*
+!data/raw/comma2k19/Chunk_1/b0c9d2329ad1606b|2018-07-27--06-03-57/10/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -13,3 +20,6 @@ __pycache__/
 .DS_Store?
 ._*
 Thumbs.db
+
+# Logs
+batch_processing_log.txt

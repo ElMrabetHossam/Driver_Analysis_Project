@@ -7,7 +7,7 @@ Implements:
 - Transformer Encoder model
 
 Usage:
-    python -m src.models.deep_learning --train data/processed/training_data_150.csv
+    python -m src.models.deep_learning --train data/processed/training_data.csv
 """
 
 import numpy as np
@@ -473,17 +473,28 @@ def train_deep_learning_models(data_path: str, output_dir: str = 'models/') -> d
         output_dir: Directory to save models
         
     Returns:
-        Results for both models
+        Results for both models including timing
     """
+    import time
+    
     print(f"\nLoading data from {data_path}...")
+    load_start = time.time()
     df = pd.read_csv(data_path)
-    print(f"Loaded {len(df)} samples")
+    load_time = time.time() - load_start
+    print(f"Loaded {len(df)} samples in {load_time:.2f}s")
     
     results = {}
+    timing = {'data_loading': load_time}
     output_path = Path(output_dir)
     output_path.mkdir(exist_ok=True)
     
+    total_start = time.time()
+    
     # Train LSTM
+    print("\n" + "="*60)
+    print("TRAINING LSTM")
+    print("="*60)
+    lstm_start = time.time()
     lstm_trainer = DeepLearningTrainer(
         model_type='lstm',
         sequence_length=20,
@@ -493,12 +504,19 @@ def train_deep_learning_models(data_path: str, output_dir: str = 'models/') -> d
     )
     lstm_history = lstm_trainer.train(df)
     lstm_trainer.save(str(output_path / 'lstm_model.pt'))
+    timing['lstm_training'] = time.time() - lstm_start
     results['lstm'] = {
         'best_val_f1': max(lstm_history['val_f1']),
-        'best_val_acc': max(lstm_history['val_acc'])
+        'best_val_acc': max(lstm_history['val_acc']),
+        'training_time': timing['lstm_training']
     }
+    print(f"\nLSTM Training Time: {timing['lstm_training']:.2f} seconds")
     
     # Train Transformer
+    print("\n" + "="*60)
+    print("TRAINING TRANSFORMER")
+    print("="*60)
+    transformer_start = time.time()
     transformer_trainer = DeepLearningTrainer(
         model_type='transformer',
         sequence_length=20,
@@ -508,20 +526,33 @@ def train_deep_learning_models(data_path: str, output_dir: str = 'models/') -> d
     )
     transformer_history = transformer_trainer.train(df)
     transformer_trainer.save(str(output_path / 'transformer_model.pt'))
+    timing['transformer_training'] = time.time() - transformer_start
     results['transformer'] = {
         'best_val_f1': max(transformer_history['val_f1']),
-        'best_val_acc': max(transformer_history['val_acc'])
+        'best_val_acc': max(transformer_history['val_acc']),
+        'training_time': timing['transformer_training']
     }
+    print(f"\nTransformer Training Time: {timing['transformer_training']:.2f} seconds")
+    
+    timing['total'] = time.time() - total_start
     
     # Summary
     print("\n" + "="*60)
     print("DEEP LEARNING TRAINING COMPLETE")
     print("="*60)
-    print(f"\n{'Model':<15} {'Best Accuracy':<15} {'Best F1':<10}")
-    print("-"*40)
-    print(f"{'LSTM':<15} {results['lstm']['best_val_acc']:<15.3f} {results['lstm']['best_val_f1']:<10.3f}")
-    print(f"{'Transformer':<15} {results['transformer']['best_val_acc']:<15.3f} {results['transformer']['best_val_f1']:<10.3f}")
+    print(f"\n{'Model':<15} {'Best Accuracy':<15} {'Best F1':<10} {'Time (s)':<10}")
+    print("-"*55)
+    print(f"{'LSTM':<15} {results['lstm']['best_val_acc']:<15.3f} {results['lstm']['best_val_f1']:<10.3f} {timing['lstm_training']:<10.2f}")
+    print(f"{'Transformer':<15} {results['transformer']['best_val_acc']:<15.3f} {results['transformer']['best_val_f1']:<10.3f} {timing['transformer_training']:<10.2f}")
     
+    print("\n--- Timing Summary ---")
+    print(f"  Data Loading:          {timing['data_loading']:.2f}s")
+    print(f"  LSTM Training:         {timing['lstm_training']:.2f}s")
+    print(f"  Transformer Training:  {timing['transformer_training']:.2f}s")
+    print(f"  ─────────────────────────────")
+    print(f"  TOTAL:                 {timing['total']:.2f}s")
+    
+    results['timing'] = timing
     return results
 
 
@@ -529,7 +560,7 @@ if __name__ == "__main__":
     import argparse
     
     parser = argparse.ArgumentParser(description="Train deep learning models")
-    parser.add_argument("--train", type=str, default="data/processed/training_data_150.csv",
+    parser.add_argument("--train", type=str, default="data/processed/training_data.csv",
                        help="Path to training data CSV")
     parser.add_argument("--output", "-o", type=str, default="models/",
                        help="Output directory for models")

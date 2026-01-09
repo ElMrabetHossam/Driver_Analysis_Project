@@ -4,236 +4,209 @@ import os
 
 class LaneDetector:
     def __init__(self):
-        """
-        Initialisation du détecteur de lignes.
-        Pas de modèle IA ici, c'est de la Vision par Ordinateur classique (OpenCV).
-        """
-        # Constants for lane deviation calculation
-        self.LANE_WIDTH_METERS = 3.7  # Standard lane width
-        self.HOOD_CUTOFF = 150  # Pixels to cut from bottom (hood of car)
-    
-    def _create_roi_mask(self, height: int, width: int) -> np.ndarray:
-        """
-        Create the Region of Interest polygon for lane detection.
+        # --- CONFIGURATION ---
+        self.detected = False  
         
-        Args:
-            height: Image height
-            width: Image width
-            
-        Returns:
-            Numpy array of polygon vertices
-        """
-        return np.array([
-            [
-                (100, height - self.HOOD_CUTOFF),           # Bas Gauche (au-dessus du capot)
-                (width - 100, height - self.HOOD_CUTOFF),   # Bas Droit
-                (width // 2 + 50, height // 2 + 60),        # Haut Droit (vers l'horizon)
-                (width // 2 - 50, height // 2 + 60)         # Haut Gauche
-            ]
+        # Mémoire
+        self.recent_fit_left = []
+        self.recent_fit_right = []
+        self.best_fit_left = None
+        self.best_fit_right = None
+        
+        # Buffer pour la stabilité
+        self.buffer_size = 12 
+        self.failure_count = 0 
+
+    def get_perspective_transform(self, frame):
+        h, w = frame.shape[:2]
+        horizon_y = int(h * 0.50) 
+        
+        src = np.float32([
+            [w * 0.46, horizon_y],    
+            [w * 0.54, horizon_y],    
+            [w * 0.98, h * 0.96],     
+            [w * 0.02, h * 0.96]      
         ])
-    
-    def _detect_lane_lines(self, frame):
-        """
-        Core lane line detection returning raw line segments.
         
-        Args:
-            frame: BGR image
+        dst = np.float32([
+            [w * 0.20, 0], 
+            [w * 0.80, 0], 
+            [w * 0.80, h], 
+            [w * 0.20, h]
+        ])
+        
+        M = cv2.getPerspectiveTransform(src, dst)
+        Minv = cv2.getPerspectiveTransform(dst, src)
+        warped = cv2.warpPerspective(frame, M, (w, h))
+        return warped, Minv
+
+    def robust_threshold(self, frame):
+        lab = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB)
+        l_channel, a, b = cv2.split(lab)
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+        cl = clahe.apply(l_channel)
+        
+        white_mask = cv2.inRange(cl, 200, 255)
+        yellow_mask = cv2.inRange(lab, np.array([0, 0, 145]), np.array([255, 255, 255]))
+        
+        sobelx = cv2.Sobel(cl, cv2.CV_64F, 1, 0, ksize=9)
+        abs_sobel = np.absolute(sobelx)
+        scaled_sobel = np.uint8(255 * abs_sobel / np.max(abs_sobel))
+        sobel_mask = np.zeros_like(scaled_sobel)
+        sobel_mask[(scaled_sobel >= 20) & (scaled_sobel <= 100)] = 1
+        
+        combined = np.zeros_like(white_mask)
+        combined[((white_mask > 0) | (yellow_mask > 0)) | (sobel_mask == 1)] = 1
+        return combined
+
+    def search_around_poly(self, binary_warped):
+        margin = 80 
+        nonzero = binary_warped.nonzero()
+        nonzeroy = np.array(nonzero[0])
+        nonzerox = np.array(nonzero[1])
+        
+        left_fit = self.best_fit_left
+        right_fit = self.best_fit_right
+        
+        left_lane_inds = ((nonzerox > (left_fit[0]*(nonzeroy**2) + left_fit[1]*nonzeroy + left_fit[2] - margin)) & 
+                          (nonzerox < (left_fit[0]*(nonzeroy**2) + left_fit[1]*nonzeroy + left_fit[2] + margin)))
+        right_lane_inds = ((nonzerox > (right_fit[0]*(nonzeroy**2) + right_fit[1]*nonzeroy + right_fit[2] - margin)) & 
+                           (nonzerox < (right_fit[0]*(nonzeroy**2) + right_fit[1]*nonzeroy + right_fit[2] + margin)))
+        
+        return left_lane_inds, right_lane_inds, nonzerox, nonzeroy
+
+    def sliding_window_search(self, binary_warped):
+        histogram = np.sum(binary_warped[binary_warped.shape[0]//2:,:], axis=0)
+        midpoint = int(histogram.shape[0]//2)
+        leftx_base = np.argmax(histogram[:midpoint])
+        rightx_base = np.argmax(histogram[midpoint:]) + midpoint
+
+        nwindows = 9
+        window_height = int(binary_warped.shape[0]//nwindows)
+        nonzero = binary_warped.nonzero()
+        nonzeroy = np.array(nonzero[0])
+        nonzerox = np.array(nonzero[1])
+        
+        current_leftX = leftx_base
+        current_rightX = rightx_base
+        margin = 100
+        minpix = 50
+        left_lane_inds = []
+        right_lane_inds = []
+
+        for window in range(nwindows):
+            win_y_low = binary_warped.shape[0] - (window+1)*window_height
+            win_y_high = binary_warped.shape[0] - window*window_height
             
-        Returns:
-            Tuple of (left_lines, right_lines, edges, height, width)
-        """
-        height, width = frame.shape[:2]
-        
-        # 1. Preprocessing
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        blur = cv2.GaussianBlur(gray, (5, 5), 0)
-        edges = cv2.Canny(blur, 50, 150)
-        
-        # 2. ROI mask
-        polygons = self._create_roi_mask(height, width)
-        mask = np.zeros_like(edges)
-        cv2.fillPoly(mask, polygons, 255)
-        masked_edges = cv2.bitwise_and(edges, mask)
-        
-        # 3. Hough transform
-        lines = cv2.HoughLinesP(masked_edges, 1, np.pi/180, 30,
-                                minLineLength=20, maxLineGap=20)
-        
-        if lines is None:
-            return [], [], masked_edges, height, width
-        
-        # 4. Separate left and right lanes by slope
-        left_lines = []
-        right_lines = []
-        
-        for line in lines:
-            x1, y1, x2, y2 = line[0]
-            if x2 - x1 == 0:
-                continue
-            slope = (y2 - y1) / (x2 - x1)
+            good_left = ((nonzeroy >= win_y_low) & (nonzeroy < win_y_high) & 
+                         (nonzerox >= current_leftX - margin) & (nonzerox < current_leftX + margin)).nonzero()[0]
+            good_right = ((nonzeroy >= win_y_low) & (nonzeroy < win_y_high) & 
+                          (nonzerox >= current_rightX - margin) & (nonzerox < current_rightX + margin)).nonzero()[0]
             
-            # Filter horizontal lines
-            if abs(slope) < 0.3:
-                continue
+            left_lane_inds.append(good_left)
+            right_lane_inds.append(good_right)
             
-            if slope < 0:  # Left lane (negative slope in image coords)
-                left_lines.append((x1, y1, x2, y2))
-            else:  # Right lane
-                right_lines.append((x1, y1, x2, y2))
-        
-        return left_lines, right_lines, masked_edges, height, width
-    
-    def calculate_lane_center(self, frame) -> float:
-        """
-        Calculate the lateral deviation from lane center.
-        
-        Args:
-            frame: BGR image
-            
-        Returns:
-            Deviation in meters (positive = right of center, negative = left)
-            Returns np.nan if lanes cannot be detected
-        """
-        left_lines, right_lines, _, height, width = self._detect_lane_lines(frame)
-        
-        if not left_lines or not right_lines:
-            return np.nan
-        
-        # Average the line endpoints
-        left_avg = np.mean(left_lines, axis=0)
-        right_avg = np.mean(right_lines, axis=0)
-        
-        # Evaluate at a consistent y position (above hood cutoff)
-        y_eval = height - self.HOOD_CUTOFF - 50
-        
-        # Extrapolate left line to y_eval
-        x1, y1, x2, y2 = left_avg
-        if y2 - y1 != 0:
-            left_slope = (x2 - x1) / (y2 - y1)
-            left_x = x1 + left_slope * (y_eval - y1)
-        else:
-            left_x = x1
-        
-        # Extrapolate right line to y_eval
-        x1, y1, x2, y2 = right_avg
-        if y2 - y1 != 0:
-            right_slope = (x2 - x1) / (y2 - y1)
-            right_x = x1 + right_slope * (y_eval - y1)
-        else:
-            right_x = x1
-        
-        # Calculate deviation
-        lane_center = (left_x + right_x) / 2
-        image_center = width / 2
-        deviation_pixels = lane_center - image_center
-        
-        # Convert to meters
-        lane_width_pixels = abs(right_x - left_x)
-        if lane_width_pixels > 50:  # Sanity check
-            meters_per_pixel = self.LANE_WIDTH_METERS / lane_width_pixels
-            return float(deviation_pixels * meters_per_pixel)
-        
-        return np.nan
+            if len(good_left) > minpix: current_leftX = int(np.mean(nonzerox[good_left]))
+            if len(good_right) > minpix: current_rightX = int(np.mean(nonzerox[good_right]))
+
+        return np.concatenate(left_lane_inds), np.concatenate(right_lane_inds), nonzerox, nonzeroy
+
+    def sanity_check(self, left_fit, right_fit, h):
+        if abs(left_fit[0] - right_fit[0]) > 0.005: 
+            return False
+        y_vals = [h-10, h/2]
+        for y in y_vals:
+            lx = left_fit[0]*y**2 + left_fit[1]*y + left_fit[2]
+            rx = right_fit[0]*y**2 + right_fit[1]*y + right_fit[2]
+            width = rx - lx
+            if width < 300 or width > 1200: 
+                return False
+        return True
 
     def detect_lanes(self, frame):
-        """
-        Pipeline complet de détection :
-        Image -> Niveaux de gris -> Canny (Bords) -> Masque (ROI) -> Hough (Lignes)
-        """
-        # 1. Conversion en niveaux de gris
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        h, w = frame.shape[:2]
+        warped, Minv = self.get_perspective_transform(frame)
+        thresholded = self.robust_threshold(warped)
         
-        # 2. Flou Gaussien (Réduit le bruit du grain de la route)
-        blur = cv2.GaussianBlur(gray, (5, 5), 0)
+        if self.detected:
+            left_inds, right_inds, nonzerox, nonzeroy = self.search_around_poly(thresholded)
+        else:
+            left_inds, right_inds, nonzerox, nonzeroy = self.sliding_window_search(thresholded)
         
-        # 3. Détection des bords (Canny)
-        # 50 et 150 sont des seuils standards pour détecter les contrastes forts (blanc sur bitume)
-        edges = cv2.Canny(blur, 50, 150)
+        current_left_fit = None
+        current_right_fit = None
         
-        # 4. Définition de la Zone d'Intérêt (ROI) - Masquage du capot et du ciel
-        height, width = frame.shape[:2]
-        
-        # On coupe les 150 derniers pixels du bas pour cacher le capot de la voiture
-        hood_cutoff = 150 
-        
-        # Polygone trapézoïdal (forme de la route vue en perspective)
-        polygons = np.array([
-            [
-                (100, height - hood_cutoff),           # Bas Gauche (au-dessus du capot)
-                (width - 100, height - hood_cutoff),   # Bas Droit
-                (width // 2 + 50, height // 2 + 60),   # Haut Droit (vers l'horizon)
-                (width // 2 - 50, height // 2 + 60)    # Haut Gauche
-            ]
-        ])
-        
-        masked_edges = self.region_of_interest(edges, polygons)
-        
-        # 5. Transformée de Hough (Trouver les lignes) - PARAMÈTRES SENSIBLES
-        # Rho=1 : Précision au pixel près (plus fin que 2)
-        # Threshold=30 : Il suffit de 30 votes pour valider une ligne (plus sensible)
-        # minLineLength=20 : Accepte les petits traits (pointillés) de 20px
-        # maxLineGap=20 : Si deux traits sont séparés de moins de 20px, on les relie
-        lines = cv2.HoughLinesP(masked_edges, 1, np.pi/180, 30, 
-                                minLineLength=20, maxLineGap=20)
-        
-        # 6. Dessin des lignes détectées
-        line_image = np.zeros_like(frame)
-        
-        if lines is not None:
-            for line in lines:
-                x1, y1, x2, y2 = line[0]
-                # Dessin en BLEU (BGR: 255, 0, 0) avec épaisseur 3
-                cv2.line(line_image, (x1, y1), (x2, y2), (255, 0, 0), 3)
-        
-        # 7. Superposition (Image originale + Lignes bleues)
-        combo_image = cv2.addWeighted(frame, 0.8, line_image, 1, 1)
-        
-        return combo_image
+        if len(left_inds) > 0 and len(right_inds) > 0:
+            leftx, lefty = nonzerox[left_inds], nonzeroy[left_inds]
+            rightx, righty = nonzerox[right_inds], nonzeroy[right_inds]
+            try:
+                current_left_fit = np.polyfit(lefty, leftx, 2)
+                current_right_fit = np.polyfit(righty, rightx, 2)
+            except: pass
 
-    def region_of_interest(self, image, polygons):
-        """
-        Applique un masque noir pour ne garder que la zone définie par 'polygons'.
-        """
-        mask = np.zeros_like(image)
-        # Remplit le polygone de blanc (255)
-        cv2.fillPoly(mask, polygons, 255)
-        # Opération ET logique pour garder l'intersection
-        masked_image = cv2.bitwise_and(image, mask)
-        return masked_image
+        valid_detection = False
+        if current_left_fit is not None and current_right_fit is not None:
+            if self.sanity_check(current_left_fit, current_right_fit, h):
+                valid_detection = True
+                self.failure_count = 0 
+            else: self.failure_count += 1
+        else: self.failure_count += 1
 
-# --- BLOCK DE TEST (Exécution directe) ---
-if __name__ == "__main__":
-    video_path = "test.hevc"
-    
-    if not os.path.exists(video_path):
-        print(f"ERREUR : La vidéo '{video_path}' est introuvable à la racine.")
-        exit()
+        if valid_detection:
+            self.detected = True
+            self.best_fit_left = current_left_fit
+            self.best_fit_right = current_right_fit
+            self.recent_fit_left.append(current_left_fit)
+            self.recent_fit_right.append(current_right_fit)
+        else:
+            if self.failure_count > 5:
+                self.detected = False 
+                self.recent_fit_left = [] 
+                self.recent_fit_right = []
+        
+        if len(self.recent_fit_left) > self.buffer_size:
+            self.recent_fit_left.pop(0)
+            self.recent_fit_right.pop(0)
+            
+        if len(self.recent_fit_left) > 0:
+            avg_left = np.mean(self.recent_fit_left, axis=0)
+            avg_right = np.mean(self.recent_fit_right, axis=0)
+        else: 
+            # Si pas de détection, on renvoie None pour le polygone
+            return frame, None 
 
-    cap = cv2.VideoCapture(video_path)
-    lane_detector = LaneDetector()
-    
-    print("--- Test Détection de Lignes (Sensible aux pointillés) ---")
-    print("Appuie sur 'q' pour quitter.")
-    
-    while cap.isOpened():
-        ret, frame = cap.read()
-        if not ret:
-            break
-            
-        try:
-            # Appel de la détection
-            frame_with_lanes = lane_detector.detect_lanes(frame)
-            
-            # Affichage redimensionné pour bien voir
-            display_frame = cv2.resize(frame_with_lanes, (1024, 768))
-            cv2.imshow('Lane Detection - Tuned', display_frame)
+        # --- DESSIN ---
+        ploty = np.linspace(0, h-1, h)
+        left_fitx = avg_left[0]*ploty**2 + avg_left[1]*ploty + avg_left[2]
+        right_fitx = avg_right[0]*ploty**2 + avg_right[1]*ploty + avg_right[2]
+
+        warp_zero = np.zeros_like(thresholded).astype(np.uint8)
+        color_warp = cv2.merge((warp_zero, warp_zero, warp_zero))
         
-        except Exception as e:
-            print(f"Erreur lors du traitement d'une frame : {e}")
-            break
+        # Points pour le remplissage
+        pts_left = np.array([np.transpose(np.vstack([left_fitx, ploty]))])
+        pts_right = np.array([np.flipud(np.transpose(np.vstack([right_fitx, ploty])))])
+        pts = np.concatenate((pts_left, pts_right), axis=1)
+
+        # Points pour les lignes
+        line_pts_left = np.array([np.transpose(np.vstack([left_fitx, ploty]))])
+        line_pts_right = np.array([np.transpose(np.vstack([right_fitx, ploty]))])
+
+        # Remplissage
+        color_fill = (0, 255, 0) if self.failure_count < 10 else (0, 0, 255)
+        cv2.fillPoly(color_warp, np.int_([pts]), color_fill)
+
+        # Lignes
+        cv2.polylines(color_warp, np.int_([line_pts_left]), False, (255, 0, 0), 20)
+        cv2.polylines(color_warp, np.int_([line_pts_right]), False, (0, 0, 255), 20)
+
+        # --- NOUVEAUTÉ : Calcul du Polygone sur l'image ORIGINALE ---
+        # On utilise Minv pour projeter les points de la vue oiseau vers la vue normale
+        lane_poly_original = cv2.perspectiveTransform(pts, Minv)
+
+        # Projection finale
+        newwarp = cv2.warpPerspective(color_warp, Minv, (w, h))
+        result = cv2.addWeighted(frame, 1, newwarp, 0.5, 0)
         
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
-            
-    cap.release()
-    cv2.destroyAllWindows()
+        # On renvoie le résultat ET le polygone réel
+        return result, lane_poly_original
